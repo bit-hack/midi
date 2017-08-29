@@ -20,23 +20,20 @@ struct midi_stream_t {
     const uint8_t* end;
 };
 
-static
-void swap(uint8_t* x, uint8_t* y)
+static void swap(uint8_t* x, uint8_t* y)
 {
     const uint8_t t = *x;
-                 *x = *y;
-                 *y =  t;
+    *x = *y;
+    *y = t;
 }
 
-static
-void endian16(uint16_t* x)
+static void endian16(uint16_t* x)
 {
     uint8_t* p = (uint8_t*)x;
     swap(p + 0, p + 1);
 }
 
-static
-void endian32(uint32_t* x)
+static void endian32(uint32_t* x)
 {
     uint8_t* p = (uint8_t*)x;
     swap(p + 0, p + 3);
@@ -61,8 +58,7 @@ enum {
 #define restrict __restrict
 #endif
 
-static
-size_t vlq_read(const uint8_t* restrict in, uint64_t* restrict out)
+static size_t vlq_read(const uint8_t* restrict in, uint64_t* restrict out)
 {
     size_t read = 1;
     uint64_t accum = 0, shl = 0;
@@ -78,7 +74,7 @@ size_t vlq_read(const uint8_t* restrict in, uint64_t* restrict out)
     return read;
 }
 
-struct midi_t* midi_load(void* restrict data, size_t size)
+struct midi_t* midi_load(const void* data, size_t size)
 {
 #define TRY(EXPR)       \
     {                   \
@@ -156,19 +152,20 @@ void midi_stream_free(struct midi_stream_t* stream)
     free(stream);
 }
 
-static
-bool on_meta_event(struct midi_stream_t* stream, struct midi_event_t* event)
+static bool on_meta_event(struct midi_stream_t* stream, struct midi_event_t* event)
 {
+    // read meta event type
     const uint8_t type = *(stream->ptr++);
-    // read data size
+    // read meta data size
     uint64_t vlq_value;
     const size_t vlq_size = vlq_read(stream->ptr, &vlq_value);
     stream->ptr += vlq_size;
     // set event data
-    event->type = e_midi_event_sysex_meta;
+    event->type = e_midi_event_meta;
     event->length = vlq_value;
     event->data = stream->ptr;
-    // step over event data
+    event->meta = type;
+    // step over meta event data
     stream->ptr += vlq_value;
 
     if (type == 0x0 /* Sequence Number */) {
@@ -214,11 +211,9 @@ bool on_meta_event(struct midi_stream_t* stream, struct midi_event_t* event)
     return false;
 }
 
-static
-bool on_midi_sysex(struct midi_stream_t* stream, struct midi_event_t* event)
+static bool on_midi_sysex(struct midi_stream_t* stream, struct midi_event_t* event)
 {
     switch (event->channel) {
-//  case 0x03: /* song select */
     case 0x07: /* escape sequence */ {
         uint64_t vlq_value = 0;
         const uint64_t vlq_size = vlq_read(stream->ptr, &vlq_value);
@@ -235,8 +230,7 @@ bool on_midi_sysex(struct midi_stream_t* stream, struct midi_event_t* event)
     return false;
 }
 
-static
-bool on_midi_cc(struct midi_stream_t* stream, struct midi_event_t* event)
+static bool on_midi_cc(struct midi_stream_t* stream, struct midi_event_t* event)
 {
     const uint8_t index = stream->ptr[0];
     const uint8_t value = stream->ptr[1];
@@ -250,10 +244,28 @@ bool on_midi_cc(struct midi_stream_t* stream, struct midi_event_t* event)
     return true;
 }
 
-bool midi_next_event(struct midi_stream_t* stream, struct midi_event_t* event)
+bool midi_event_peek(struct midi_stream_t* stream, struct midi_event_t* event)
 {
-    // parse midi stream event
+    struct midi_stream_t temp = *stream;
+    return midi_event_next(&temp, event);
+}
+
+bool midi_event_delta(struct midi_stream_t* stream, uint64_t* delta)
+{
+    assert(stream && delta);
     if (stream->ptr >= stream->end) {
+        // stream has ended
+        return false;
+    }
+    // parse delta time
+    vlq_read(stream->ptr, delta);
+    return true;
+}
+
+bool midi_event_next(struct midi_stream_t* stream, struct midi_event_t* event)
+{
+    if (stream->ptr >= stream->end) {
+        // stream has ended
         return false;
     }
     // parse delta time
@@ -262,18 +274,18 @@ bool midi_next_event(struct midi_stream_t* stream, struct midi_event_t* event)
     // midi parse event byte
     uint8_t cmd = *(stream->ptr);
     if (cmd & 0x80) {
-      stream->prevEvent = cmd;
-      stream->ptr++;
-    }
-    else {
-      // continuation of previous event
-      cmd = stream->prevEvent;
+        stream->prevEvent = cmd;
+        stream->ptr++;
+    } else {
+        // continuation of previous event
+        cmd = stream->prevEvent;
     }
     // output known event data
     event->type = cmd & 0xf0;
     event->channel = cmd & 0x0f;
     event->data = stream->ptr;
     event->length = 0;
+    event->meta = 0;
     // parse for length
     switch (event->type) {
     case e_midi_event_note_off:
@@ -300,4 +312,47 @@ bool midi_stream_end(struct midi_stream_t* stream)
 {
     assert(stream);
     return stream->ptr == stream->end;
+}
+
+bool midi_stream_mux(
+    struct midi_stream_t** stream,
+    uint64_t* delta,
+    const size_t count,
+    struct midi_event_t* event,
+    uint64_t* delta_out)
+{
+    assert(stream && delta && count && event);
+    static const uint64_t invalid = ~0llu;
+    struct midi_stream* next = NULL;
+    uint64_t* next_delta = NULL;
+    uint64_t min_delta = invalid;
+    // select track with nearest pending event
+    for (size_t i = 0; i < count; ++i) {
+        uint64_t cur_delta;
+        if (!midi_event_delta(stream[i], &cur_delta)) {
+            // unable to parse, stream likely ended
+            continue;
+        }
+        cur_delta += delta[i];
+        if (cur_delta >= min_delta) {
+            // event is not closest pending
+            continue;
+        }
+        min_delta = cur_delta;
+        // save new stream pointers
+        next = stream[i];
+        next_delta = delta + i;
+    }
+    // will be null if all tracks have ended
+    if (next == NULL || next_delta == NULL) {
+        return false;
+    }
+    // parse midi event from stream
+    if (!midi_event_next(next, event)) {
+        return false;
+    }
+    // save event timing
+    *next_delta = min_delta;
+    *delta_out = min_delta;
+    return true;
 }

@@ -13,8 +13,7 @@ struct file_t {
     size_t size_;
 };
 
-static
-bool file_load(const char* path, struct file_t* out)
+static bool file_load(const char* path, struct file_t* out)
 {
 #define TRY(EXPR)       \
     {                   \
@@ -39,8 +38,7 @@ error:
 #undef TRY
 }
 
-static
-char toPrintableAscii(const char ch)
+static char toPrintableAscii(const char ch)
 {
     return (ch >= 32 && ch <= 126) ? ch : '.';
 }
@@ -66,14 +64,14 @@ int main(const int argc, const char* args[])
         printf("Track %d\n", i);
         struct midi_event_t event;
         while (!midi_stream_end(stream)) {
-            if (!midi_next_event(stream, &event)) {
+            if (!midi_event_next(stream, &event)) {
                 return 1;
             }
             printf("%6llu: [%02x] %02x ",
                 (uint64_t)event.delta,
                 (uint32_t)event.type,
                 (uint32_t)event.channel);
-#if AS_HEX
+#if AS_HEX || 1
             for (size_t i = 0; i < event.length; ++i) {
                 printf("%c%02x", ((i == 0) ? '{' : ' '), event.data[i]);
             }
