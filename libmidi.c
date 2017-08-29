@@ -15,6 +15,7 @@
     }
 
 struct midi_stream_t {
+    uint8_t prevEvent;
     const uint8_t* ptr;
     const uint8_t* end;
 };
@@ -146,6 +147,7 @@ struct midi_stream_t* midi_stream(struct midi_t* midi, uint32_t track)
     assert(trk->data);
     stream->ptr = trk->data;
     stream->end = trk->data + trk->length;
+    stream->prevEvent = 0xff;
     return stream;
 }
 
@@ -158,54 +160,54 @@ static
 bool on_meta_event(struct midi_stream_t* stream, struct midi_event_t* event)
 {
     const uint8_t type = *(stream->ptr++);
-
+    // read data size
     uint64_t vlq_value;
     const size_t vlq_size = vlq_read(stream->ptr, &vlq_value);
     stream->ptr += vlq_size;
-
-    event->length = vlq_size;
+    // set event data
+    event->type = e_midi_event_sysex_meta;
+    event->length = vlq_value;
     event->data = stream->ptr;
+    // step over event data
+    stream->ptr += vlq_value;
 
     if (type == 0x0 /* Sequence Number */) {
         assert(vlq_value == 2);
-        stream->ptr += vlq_value;
         return true;
     }
     if (type >= 0x1 && type <= 0x7 /* Text */) {
-        stream->ptr += vlq_value;
         return true;
     }
     if (type == 0x20 /* Midi Channel Prefix */) {
         assert(vlq_value == 1);
-        stream->ptr += vlq_value;
+        return true;
+    }
+    if (type == 0x21 /* Midi port */) {
+        assert(vlq_value == 1);
         return true;
     }
     if (type == 0x2f /* End of Track */) {
         assert(vlq_value == 0);
-        // HACK (reset the stream pointer)
-        stream->ptr -= 4;
-        event->length = 0;
+        // force stream end
+        stream->ptr = stream->end;
         return true;
     }
     if (type == 0x51 /* Set Tempo */) {
         assert(vlq_value == 3);
-        stream->ptr += vlq_value;
         return true;
     }
     if (type == 0x58 /* Time Signature */) {
         assert(vlq_value == 4);
-        const uint8_t nn = stream->ptr[0];
-        const uint8_t dd = stream->ptr[1];
-        const uint8_t cc = stream->ptr[2];
-        const uint8_t bb = stream->ptr[3];
-        stream->ptr += vlq_value;
+        const uint8_t nn = event->data[0];
+        const uint8_t dd = event->data[1];
+        const uint8_t cc = event->data[2];
+        const uint8_t bb = event->data[3];
         return true;
     }
     if (type == 0x59 /* Key Signature */) {
         assert(vlq_value == 2);
-        const uint8_t sf = stream->ptr[0];
-        const uint8_t mi = stream->ptr[1];
-        stream->ptr += vlq_value;
+        const uint8_t sf = event->data[0];
+        const uint8_t mi = event->data[1];
         return true;
     }
     assert(!"Unknown meta event");
@@ -258,16 +260,20 @@ bool midi_next_event(struct midi_stream_t* stream, struct midi_event_t* event)
     const size_t vlq_size = vlq_read(stream->ptr, &(event->delta));
     stream->ptr += vlq_size;
     // midi parse event byte
-    const uint8_t cmd = *(stream->ptr++);
-    if ((cmd & 0x80) == 0) {
-        return false;
+    uint8_t cmd = *(stream->ptr);
+    if (cmd & 0x80) {
+      stream->prevEvent = cmd;
+      stream->ptr++;
     }
-
+    else {
+      // continuation of previous event
+      cmd = stream->prevEvent;
+    }
+    // output known event data
     event->type = cmd & 0xf0;
     event->channel = cmd & 0x0f;
     event->data = stream->ptr;
     event->length = 0;
-
     // parse for length
     switch (event->type) {
     case e_midi_event_note_off:
@@ -288,4 +294,10 @@ bool midi_next_event(struct midi_stream_t* stream, struct midi_event_t* event)
         assert(!"unknown event type");
     }
     return false;
+}
+
+bool midi_stream_end(struct midi_stream_t* stream)
+{
+    assert(stream);
+    return stream->ptr == stream->end;
 }

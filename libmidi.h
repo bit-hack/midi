@@ -40,6 +40,9 @@ enum midi_event_type_t {
     // 1111nnnn ...
     e_midi_event_sysex = 0xF0,
 
+    // 11111111 ...
+    e_midi_event_sysex_meta = 0xFF,
+
     // channel mode messages
     // 1011nnnn [120-127]
     // note: same as e_midi_event_ctrl_change
@@ -79,3 +82,4 @@ void midi_free(struct midi_t* midi);
 struct midi_stream_t* midi_stream(struct midi_t* midi, uint32_t track);
 void midi_stream_free(struct midi_stream_t* stream);
 bool midi_next_event(struct midi_stream_t* stream, struct midi_event_t * event);
+bool midi_stream_end(struct midi_stream_t* stream);

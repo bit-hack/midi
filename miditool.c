@@ -65,8 +65,11 @@ int main(const int argc, const char* args[])
         }
         printf("Track %d\n", i);
         struct midi_event_t event;
-        while (midi_next_event(stream, &event)) {
-            printf("%04llu: [%02x] %02x %02x ",
+        while (!midi_stream_end(stream)) {
+            if (!midi_next_event(stream, &event)) {
+                return 1;
+            }
+            printf("%6llu: [%02x] %02x ",
                 (uint64_t)event.delta,
                 (uint32_t)event.type,
                 (uint32_t)event.channel);
