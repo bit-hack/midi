@@ -19,18 +19,23 @@ struct midi_stream_t {
     const uint8_t* end;
 };
 
-static void swap(uint8_t* x, uint8_t* y)
+static
+void swap(uint8_t* x, uint8_t* y)
 {
-    (*x = *x ^ *y), (*y = *y ^ *x), (*x = *x ^ *y);
+    const uint8_t t = *x;
+                 *x = *y;
+                 *y =  t;
 }
 
-static void endian16(uint16_t* x)
+static
+void endian16(uint16_t* x)
 {
     uint8_t* p = (uint8_t*)x;
     swap(p + 0, p + 1);
 }
 
-static void endian32(uint32_t* x)
+static
+void endian32(uint32_t* x)
 {
     uint8_t* p = (uint8_t*)x;
     swap(p + 0, p + 3);
@@ -55,11 +60,12 @@ enum {
 #define restrict __restrict
 #endif
 
-static size_t vlq_read(const uint8_t* restrict in, uint64_t* restrict out)
+static
+size_t vlq_read(const uint8_t* restrict in, uint64_t* restrict out)
 {
     size_t read = 1;
     uint64_t accum = 0, shl = 0;
-    for (;;++read) {
+    for (;; ++read) {
         const uint64_t c = *(in++);
         accum |= ((uint64_t)(c & 0x7full)) << shl;
         if ((c & e_CMASK) == 0) {
@@ -67,7 +73,7 @@ static size_t vlq_read(const uint8_t* restrict in, uint64_t* restrict out)
         }
         shl += 7;
     }
-    *out = accum;
+    out ? (*out = accum) : (void)0;
     return read;
 }
 
@@ -128,7 +134,7 @@ void midi_free(struct midi_t* midi)
     free(midi);
 }
 
-struct midi_stream_t* midi_stream(struct midi_t* restrict midi, uint32_t track)
+struct midi_stream_t* midi_stream(struct midi_t* midi, uint32_t track)
 {
     assert(midi);
     if (track >= midi->num_tracks) {
@@ -148,13 +154,138 @@ void midi_stream_free(struct midi_stream_t* stream)
     free(stream);
 }
 
-bool midi_next_event(struct midi_stream_t* stream, struct midi_event_t * event)
+static
+bool on_meta_event(struct midi_stream_t* stream, struct midi_event_t* event)
 {
-    const uint8_t * ptr = stream->ptr;
-    ptr += vlq_read(ptr, &(event->delta));
-    event->data = ptr;
+    const uint8_t type = *(stream->ptr++);
 
-    
+    uint64_t vlq_value;
+    const size_t vlq_size = vlq_read(stream->ptr, &vlq_value);
+    stream->ptr += vlq_size;
 
+    event->length = vlq_size;
+    event->data = stream->ptr;
+
+    if (type == 0x0 /* Sequence Number */) {
+        assert(vlq_value == 2);
+        stream->ptr += vlq_value;
+        return true;
+    }
+    if (type >= 0x1 && type <= 0x7 /* Text */) {
+        stream->ptr += vlq_value;
+        return true;
+    }
+    if (type == 0x20 /* Midi Channel Prefix */) {
+        assert(vlq_value == 1);
+        stream->ptr += vlq_value;
+        return true;
+    }
+    if (type == 0x2f /* End of Track */) {
+        assert(vlq_value == 0);
+        // HACK (reset the stream pointer)
+        stream->ptr -= 4;
+        event->length = 0;
+        return true;
+    }
+    if (type == 0x51 /* Set Tempo */) {
+        assert(vlq_value == 3);
+        stream->ptr += vlq_value;
+        return true;
+    }
+    if (type == 0x58 /* Time Signature */) {
+        assert(vlq_value == 4);
+        const uint8_t nn = stream->ptr[0];
+        const uint8_t dd = stream->ptr[1];
+        const uint8_t cc = stream->ptr[2];
+        const uint8_t bb = stream->ptr[3];
+        stream->ptr += vlq_value;
+        return true;
+    }
+    if (type == 0x59 /* Key Signature */) {
+        assert(vlq_value == 2);
+        const uint8_t sf = stream->ptr[0];
+        const uint8_t mi = stream->ptr[1];
+        stream->ptr += vlq_value;
+        return true;
+    }
+    assert(!"Unknown meta event");
+    return false;
+}
+
+static
+bool on_midi_sysex(struct midi_stream_t* stream, struct midi_event_t* event)
+{
+    switch (event->channel) {
+//  case 0x03: /* song select */
+    case 0x07: /* escape sequence */ {
+        uint64_t vlq_value = 0;
+        const uint64_t vlq_size = vlq_read(stream->ptr, &vlq_value);
+        event->length = (vlq_size + vlq_value);
+        stream->ptr += event->length;
+        return true;
+    }
+    case 0x0F: /* meta event */ {
+        return on_meta_event(stream, event);
+    }
+    default:
+        assert(!"not implemented");
+    }
+    return false;
+}
+
+static
+bool on_midi_cc(struct midi_stream_t* stream, struct midi_event_t* event)
+{
+    const uint8_t index = stream->ptr[0];
+    const uint8_t value = stream->ptr[1];
+    // MSB should not be set
+    assert(!((index & 0x80) || (value & 0x80)));
+    if (index >= 120) {
+        assert(!"TODO: channel mode");
+    } else {
+        stream->ptr += (event->length = 2);
+    }
+    return true;
+}
+
+bool midi_next_event(struct midi_stream_t* stream, struct midi_event_t* event)
+{
+    // parse midi stream event
+    if (stream->ptr >= stream->end) {
+        return false;
+    }
+    // parse delta time
+    const size_t vlq_size = vlq_read(stream->ptr, &(event->delta));
+    stream->ptr += vlq_size;
+    // midi parse event byte
+    const uint8_t cmd = *(stream->ptr++);
+    if ((cmd & 0x80) == 0) {
+        return false;
+    }
+
+    event->type = cmd & 0xf0;
+    event->channel = cmd & 0x0f;
+    event->data = stream->ptr;
+    event->length = 0;
+
+    // parse for length
+    switch (event->type) {
+    case e_midi_event_note_off:
+    case e_midi_event_note_on:
+    case e_midi_event_poly_aftertouch:
+    case e_midi_event_pitch_wheel:
+        stream->ptr += (event->length = 2);
+        return true;
+    case e_midi_event_prog_change:
+    case e_midi_event_chan_aftertouch:
+        stream->ptr += (event->length = 1);
+        return true;
+    case e_midi_event_sysex:
+        return on_midi_sysex(stream, event);
+    case e_midi_event_ctrl_change:
+        return on_midi_cc(stream, event);
+    default:
+        assert(!"unknown event type");
+    }
     return false;
 }
