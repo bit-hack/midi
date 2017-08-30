@@ -131,6 +131,8 @@ struct midi_event_t {
     const uint8_t* data;
 };
 
+struct midi_stream_t;
+
 // load a midi file from memory
 struct midi_t* midi_load(
     const void* data,
@@ -159,7 +161,8 @@ bool midi_stream_mux(
     uint64_t* delta,
     const size_t count,
     struct midi_event_t* event,
-    uint64_t* time_out);
+    uint64_t* time_out,
+    size_t* index);
 
 // peek an event without advancing the stream
 bool midi_event_peek(

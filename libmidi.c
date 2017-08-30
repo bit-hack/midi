@@ -319,7 +319,8 @@ bool midi_stream_mux(
     uint64_t* delta,
     const size_t count,
     struct midi_event_t* event,
-    uint64_t* delta_out)
+    uint64_t* delta_out,
+    size_t* index)
 {
     assert(stream && delta && count && event);
     static const uint64_t invalid = ~0llu;
@@ -342,6 +343,7 @@ bool midi_stream_mux(
         // save new stream pointers
         next = stream[i];
         next_delta = delta + i;
+        *index = i;
     }
     // will be null if all tracks have ended
     if (next == NULL || next_delta == NULL) {
