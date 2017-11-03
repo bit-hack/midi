@@ -1,4 +1,8 @@
+#if defined(_MSC_VER)
+#define assert(EXPR) { if (!(EXPR)) { __debugbreak(); } }
+#else
 #include <assert.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 
@@ -193,6 +197,10 @@ static bool on_meta_event(struct midi_stream_t* stream, struct midi_event_t* eve
         assert(vlq_value == 3);
         return true;
     }
+    if (type == 0x54 /* smpte offset */) {
+        assert(vlq_value == 5);
+        return true;
+    }
     if (type == 0x58 /* Time Signature */) {
         assert(vlq_value == 4);
         const uint8_t nn = event->data[0];
@@ -207,16 +215,16 @@ static bool on_meta_event(struct midi_stream_t* stream, struct midi_event_t* eve
         const uint8_t mi = event->data[1];
         return true;
     }
-    assert(!"Unknown meta event");
-    return false;
+//  assert(!"Unknown meta event");
+    return true;
 }
 
 static bool on_midi_sysex(struct midi_stream_t* stream, struct midi_event_t* event)
 {
+    uint64_t vlq_value = 0, vlq_size = 0;
     switch (event->channel) {
     case 0x07: /* escape sequence */ {
-        uint64_t vlq_value = 0;
-        const uint64_t vlq_size = vlq_read(stream->ptr, &vlq_value);
+        vlq_size = vlq_read(stream->ptr, &vlq_value);
         event->length = (vlq_size + vlq_value);
         stream->ptr += event->length;
         return true;
@@ -224,8 +232,13 @@ static bool on_midi_sysex(struct midi_stream_t* stream, struct midi_event_t* eve
     case 0x0F: /* meta event */ {
         return on_meta_event(stream, event);
     }
+    case 0x0: /* single complete SysEx message  */
+        vlq_size = vlq_read(stream->ptr, &vlq_value);
+        event->length = (vlq_size + vlq_value);
+        stream->ptr += event->length;
+        return true;
     default:
-        assert(!"not implemented");
+        assert(!"Unknown SysEx message");
     }
     return false;
 }
@@ -237,10 +250,9 @@ static bool on_midi_cc(struct midi_stream_t* stream, struct midi_event_t* event)
     // MSB should not be set
     assert(!((index & 0x80) || (value & 0x80)));
     if (index >= 120) {
-        assert(!"TODO: channel mode");
-    } else {
-        stream->ptr += (event->length = 2);
+        event->type = e_midi_event_channel_mode;
     }
+    stream->ptr += (event->length = 2);
     return true;
 }
 
@@ -324,7 +336,7 @@ bool midi_stream_mux(
 {
     assert(stream && delta && count && event);
     static const uint64_t invalid = ~0llu;
-    struct midi_stream* next = NULL;
+    struct midi_stream_t* next = NULL;
     uint64_t* next_delta = NULL;
     uint64_t min_delta = invalid;
     // select track with nearest pending event

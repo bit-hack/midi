@@ -1,3 +1,8 @@
+#if defined(_MSC_VER)
+#define WIN32_LEAN_AND_MEAN
+#include <Windows.h>
+#endif
+
 #define _CRT_SECURE_NO_WARNINGS
 
 #include <assert.h>
@@ -110,14 +115,26 @@ int dump_demux_events(struct midi_t* mid)
     return 0;
 }
 
+#if defined(_MSC_VER)
+LONG NTAPI crash_handler(struct _EXCEPTION_POINTERS *ExceptionInfo) {
+    exit(1);
+    return ExceptionContinueExecution;
+}
+#endif
+
 int main(const int argc, const char* args[])
 {
+#if defined(_MSC_VER)
+    AddVectoredExceptionHandler(1, crash_handler);
+#endif
+
     if (argc < 2) {
         return 1;
     }
     // load this raw file
     struct file_t file;
-    if (!file_load(args[1], &file)) {
+    const char *path = args[1];
+    if (!file_load(path, &file)) {
         return 1;
     }
     // parse as midi

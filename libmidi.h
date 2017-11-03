@@ -65,7 +65,11 @@ enum midi_event_type_t {
     // 11111111 ...
     e_midi_event_meta = 0xFF,
 
-    e_midi_event_sysex_end = 0xF7
+    e_midi_event_sysex_end = 0xF7,
+
+    // channel mode event
+    // note: derived from e_midi_event_ctrl_change
+    e_midi_event_channel_mode = 0x100
 };
 
 enum midi_event_meta_type_t {
@@ -105,6 +109,17 @@ enum midi_event_meta_type_t {
     e_midi_meta_key_signature,
     // 7f
     e_midi_meta_seq_event,
+};
+
+enum midi_channel_mode_type_t {
+    e_midi_cmode_all_sound_off          = 120,
+    e_midi_cmode_reset_all_controllers  = 121,
+    e_midi_cmode_local_control          = 122,
+    e_midi_cmode_all_notes_off          = 123,
+    e_midi_cmode_omni_mode_off          = 124,
+    e_midi_cmode_omni_mode_on           = 125,
+    e_midi_cmode_mono_mode_on           = 126,
+    e_midi_cmode_poly_mode_on           = 127,
 };
 
 struct midi_t {
