@@ -1,17 +1,48 @@
-#if defined(_MSC_VER)
-#define assert(EXPR) { if (!(EXPR)) { __debugbreak(); } }
+//  ____     _____________      _____   ___________   ___
+// |    |\  |   \______   \    /     \ |   \______ \ |   |\
+// |    ||  |   ||    |  _/\  /  \ /  \|   ||    |  \|   ||
+// |    ||__|   ||    |   \/ /    Y    \   ||    `   \   ||
+// |________\___||________/\ \____|____/___/_________/___||
+//  \________\___\________\/  \____\____\__\_________\____\
+
+#if defined(_MSC_VER) && defined(_DEBUG)
+#include <stdio.h>
+#define assert(EXPR) {                                      \
+  if (!(EXPR)) {                                            \
+    fprintf(stderr, "%s:%u: assert\n", __FILE__, __LINE__); \
+    __debugbreak();                                         \
+  }                                                         \
+}
 #else
 #include <assert.h>
 #endif
+
 #include <stdlib.h>
 #include <string.h>
 
 #include "libmidi.h"
 
-#define FOURCC(a, b, c, d) ((a) | ((b) << 8) | ((c) << 16) | ((d) << 24))
 
-#define CC_MThd FOURCC('M', 'T', 'h', 'd')
-#define CC_MTrk FOURCC('M', 'T', 'r', 'k')
+#if defined(STRICT_MIDI)
+#define strict(EXPR) assert(EXPR)
+#else
+#define strict(EXPR) (void)(EXPR)
+#endif
+
+#define FOURCC(a, b, c, d) ( \
+     ((a) <<  0) |           \
+     ((b) <<  8) |           \
+     ((c) << 16) |           \
+     ((d) << 24))
+
+enum {
+    CC_MThd = FOURCC('M', 'T', 'h', 'd'),
+    CC_MTrk = FOURCC('M', 'T', 'r', 'k'),
+    CC_RIFF = FOURCC('R', 'I', 'F', 'F'),
+    CC_RMID = FOURCC('R', 'M', 'I', 'D'),
+    CC_data = FOURCC('d', 'a', 't', 'a'),
+};
+#undef FOURCC
 
 #define MEMCPY(dst, src, len)              \
     {                                      \
@@ -48,6 +79,7 @@ static void endian32(uint32_t* x)
     {                     \
         endian16(&(PTR)); \
     }
+
 #define ENDIAN32(PTR)     \
     {                     \
         endian32(&(PTR)); \
@@ -78,6 +110,36 @@ static size_t vlq_read(const uint8_t* restrict in, uint64_t* restrict out)
     return read;
 }
 
+static const uint32_t read32(const uint8_t **ptr, const uint8_t *end)
+{
+    if (*ptr >= end)
+        return 0;
+    const uint32_t out = *(uint32_t*)(*ptr);
+    *ptr += 4;
+    return out;
+}
+
+static bool skip_riff_header(const uint8_t **ptr, size_t size)
+{
+    const uint8_t *end = (*ptr) + size, *temp = *ptr;
+    const uint32_t fourcc = read32(&temp, end);
+    if (fourcc == CC_RIFF) {
+        const uint32_t riff_size = read32(&temp, end);
+        if ((temp + riff_size) > end)
+            return false;
+        if (read32(&temp, end) != CC_RMID)
+            return false;
+        if (read32(&temp, end) != CC_data)
+            return false;
+        const uint32_t data_size = read32(&temp, end);
+        if ((temp + data_size) > end)
+            return false;
+        // update read pointer
+        *ptr = temp;
+    }
+    return true;
+}
+
 struct midi_t* midi_load(const void* data, size_t size)
 {
 #define TRY(EXPR)       \
@@ -87,11 +149,15 @@ struct midi_t* midi_load(const void* data, size_t size)
     }
     const uint8_t* ptr = (const uint8_t*)data;
     const uint8_t* const end = ptr + size;
-    TRY(size >= 14);
+    if (size < 14)
+        return NULL;
+    // skip RIFF header if present
+    if (!skip_riff_header(&ptr, size))
+        return false;
     // allocate header
     struct midi_t* hdr = malloc(sizeof(struct midi_t));
     assert(hdr);
-    hdr->tracks = NULL;
+    memset(hdr, 0, sizeof(struct midi_t));
     // extract headers
     MEMCPY(hdr, ptr, 14);
     // endian swap
@@ -153,11 +219,13 @@ struct midi_stream_t* midi_stream(struct midi_t* midi, uint32_t track)
 
 void midi_stream_free(struct midi_stream_t* stream)
 {
+    assert(stream);
     free(stream);
 }
 
 static bool on_meta_event(struct midi_stream_t* stream, struct midi_event_t* event)
 {
+    assert(stream && event);
     // read meta event type
     const uint8_t type = *(stream->ptr++);
     // read meta data size
@@ -173,82 +241,82 @@ static bool on_meta_event(struct midi_stream_t* stream, struct midi_event_t* eve
     stream->ptr += vlq_value;
 
     if (type == 0x0 /* Sequence Number */) {
-        assert(vlq_value == 2);
+        strict(vlq_value == 2);
         return true;
     }
     if (type >= 0x1 && type <= 0x7 /* Text */) {
         return true;
     }
     if (type == 0x20 /* Midi Channel Prefix */) {
-        assert(vlq_value == 1);
+        strict(vlq_value == 1);
         return true;
     }
     if (type == 0x21 /* Midi port */) {
-        assert(vlq_value == 1);
+        strict(vlq_value == 1);
         return true;
     }
     if (type == 0x2f /* End of Track */) {
-        assert(vlq_value == 0);
+        strict(vlq_value == 0);
         // force stream end
         stream->ptr = stream->end;
         return true;
     }
     if (type == 0x51 /* Set Tempo */) {
-        assert(vlq_value == 3);
+        strict(vlq_value == 3);
         return true;
     }
     if (type == 0x54 /* smpte offset */) {
-        assert(vlq_value == 5);
+        strict(vlq_value == 5);
         return true;
     }
     if (type == 0x58 /* Time Signature */) {
-        assert(vlq_value == 4);
-        const uint8_t nn = event->data[0];
-        const uint8_t dd = event->data[1];
-        const uint8_t cc = event->data[2];
-        const uint8_t bb = event->data[3];
+        strict(vlq_value == 4);
         return true;
     }
     if (type == 0x59 /* Key Signature */) {
-        assert(vlq_value == 2);
-        const uint8_t sf = event->data[0];
-        const uint8_t mi = event->data[1];
+        strict(vlq_value == 2);
         return true;
     }
-//  assert(!"Unknown meta event");
+    strict(!"Unknown meta event");
     return true;
 }
 
 static bool on_midi_sysex(struct midi_stream_t* stream, struct midi_event_t* event)
 {
+    assert(stream && event);
     uint64_t vlq_value = 0, vlq_size = 0;
     switch (event->channel) {
-    case 0x07: /* escape sequence */ {
-        vlq_size = vlq_read(stream->ptr, &vlq_value);
-        event->length = (vlq_size + vlq_value);
-        stream->ptr += event->length;
-        return true;
-    }
-    case 0x0F: /* meta event */ {
-        return on_meta_event(stream, event);
-    }
     case 0x0: /* single complete SysEx message  */
         vlq_size = vlq_read(stream->ptr, &vlq_value);
         event->length = (vlq_size + vlq_value);
         stream->ptr += event->length;
         return true;
-    default:
-        assert(!"Unknown SysEx message");
+    case 0x07: /* escape sequence */
+        vlq_size = vlq_read(stream->ptr, &vlq_value);
+        event->length = (vlq_size + vlq_value);
+        stream->ptr += event->length;
+        return true;
+    case 0x0F: /* meta event */
+        return on_meta_event(stream, event);
+    default: /* unknown sysex event */
+        strict(!"Unknown SysEx message");
+        vlq_size = vlq_read(stream->ptr, &vlq_value);
+        event->length = (vlq_size + vlq_value);
+        stream->ptr += event->length;
+        return true;
     }
-    return false;
 }
 
 static bool on_midi_cc(struct midi_stream_t* stream, struct midi_event_t* event)
 {
+    assert(stream && event);
     const uint8_t index = stream->ptr[0];
     const uint8_t value = stream->ptr[1];
     // MSB should not be set
-    assert(!((index & 0x80) || (value & 0x80)));
+    const int msb_set = (index & 0x80) | (value & 0x80);
+    strict(msb_set == 0);
+    if (msb_set)
+        return false;
     if (index >= 120) {
         event->type = e_midi_event_channel_mode;
     }
@@ -258,6 +326,7 @@ static bool on_midi_cc(struct midi_stream_t* stream, struct midi_event_t* event)
 
 bool midi_event_peek(struct midi_stream_t* stream, struct midi_event_t* event)
 {
+    assert(stream && event);
     struct midi_stream_t temp = *stream;
     return midi_event_next(&temp, event);
 }
@@ -276,6 +345,7 @@ bool midi_event_delta(struct midi_stream_t* stream, uint64_t* delta)
 
 bool midi_event_next(struct midi_stream_t* stream, struct midi_event_t* event)
 {
+    assert(stream && event);
     if (stream->ptr >= stream->end) {
         // stream has ended
         return false;

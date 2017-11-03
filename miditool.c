@@ -1,17 +1,24 @@
+//  ____     _____________      _____   ___________   ___
+// |    |\  |   \______   \    /     \ |   \______ \ |   |\
+// |    ||  |   ||    |  _/\  /  \ /  \|   ||    |  \|   ||
+// |    ||__|   ||    |   \/ /    Y    \   ||    `   \   ||
+// |________\___||________/\ \____|____/___/_________/___||
+//  \________\___\________\/  \____\____\__\_________\____\
+
 #if defined(_MSC_VER)
 #define WIN32_LEAN_AND_MEAN
+#define _CRT_SECURE_NO_WARNINGS
 #include <Windows.h>
 #endif
 
-#define _CRT_SECURE_NO_WARNINGS
-
-#include <assert.h>
 #include <stdbool.h>
+#include <assert.h>
 #include <stdint.h>
-#include <stdio.h>
 #include <stdlib.h>
+#include <stdio.h>
 
 #include "libmidi.h"
+
 
 struct file_t {
     void* file_;
@@ -125,8 +132,12 @@ LONG NTAPI crash_handler(struct _EXCEPTION_POINTERS *ExceptionInfo) {
 int main(const int argc, const char* args[])
 {
 #if defined(_MSC_VER)
-    AddVectoredExceptionHandler(1, crash_handler);
+    if (IsDebuggerPresent() == FALSE) {
+        AddVectoredExceptionHandler(1, crash_handler);
+    }
 #endif
+
+    freopen("null", "wb", stdout);
 
     if (argc < 2) {
         return 1;

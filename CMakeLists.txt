@@ -9,3 +9,5 @@ add_library(libmidi libmidi.c libmidi.h)
 
 add_executable(miditool miditool.c)
 target_link_libraries(miditool libmidi)
+
+configure_file(testmidi.py.in testmidi.py)

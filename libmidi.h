@@ -1,7 +1,14 @@
-#pragma once
+//  ____     _____________      _____   ___________   ___
+// |    |\  |   \______   \    /     \ |   \______ \ |   |\
+// |    ||  |   ||    |  _/\  /  \ /  \|   ||    |  \|   ||
+// |    ||__|   ||    |   \/ /    Y    \   ||    `   \   ||
+// |________\___||________/\ \____|____/___/_________/___||
+//  \________\___\________\/  \____\____\__\_________\____\
 
+#pragma once
 #include <stdbool.h>
 #include <stdint.h>
+
 
 enum midi_format_t {
 
@@ -139,9 +146,9 @@ struct midi_track_t {
 
 struct midi_event_t {
     uint64_t delta;
-    uint8_t type;
-    uint8_t meta;
-    uint8_t channel;
+    uint16_t type;
+    uint8_t  meta;
+    uint8_t  channel;
     uint64_t length; // length of data field
     const uint8_t* data;
 };
