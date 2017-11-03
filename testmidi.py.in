@@ -1,0 +1,56 @@
+#!/usr/bin/env python
+from __future__ import print_function
+import os
+import subprocess
+from shutil import copyfile
+
+
+tool_path = os.path.join(r'${CMAKE_CURRENT_BINARY_DIR}', 'Debug', 'miditool.exe')
+test_path = os.path.join(r'${CMAKE_SOURCE_DIR}', 'data')
+fail_path = os.path.join(r'${CMAKE_SOURCE_DIR}', 'fails')
+tested = 0
+failed = []
+
+
+def copy_fail(path):
+    try:
+        name = os.path.basename(path)
+        dest = os.path.join(fail_path, name)
+        copyfile(path, dest)
+    except Exception as _:
+        pass
+
+
+def test_midi_file(midi_path):
+    global failed
+    ret = subprocess.call([tool_path, midi_path])
+    if ret == 1:
+        print('{0}'.format(midi_path))
+        failed += [midi_path]
+        copy_fail(midi_path)
+
+
+def print_summary():
+    global tested, failed
+    print('{0} of {1} passed'.format(tested-len(failed), tested))
+    if failed:
+        print('{0} failed!'.format(len(failed)))
+        for test in failed:
+            try:
+                print(' ! {0}'.format(test))
+            except Exception as _:
+                pass
+
+
+def main():
+    global tested
+    for root, dirs, files in os.walk(test_path):
+        for f in files:
+            if f.lower().endswith(".mid"):
+                tested += 1
+                test_midi_file(os.path.join(root, f))
+    print_summary()
+
+
+if __name__ == '__main__':
+    main()
