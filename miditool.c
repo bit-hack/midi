@@ -9,6 +9,7 @@
 #define WIN32_LEAN_AND_MEAN
 #define _CRT_SECURE_NO_WARNINGS
 #include <Windows.h>
+#include <stdio.h>
 #endif
 
 #include <stdbool.h>
@@ -122,8 +123,12 @@ int dump_demux_events(struct midi_t* mid)
     return 0;
 }
 
+const char * path = "";
+
 #if defined(_MSC_VER)
 LONG NTAPI crash_handler(struct _EXCEPTION_POINTERS *ExceptionInfo) {
+    const LPCSTR cmd = GetCommandLineA();
+    fprintf(stderr, "exception: %s!\n", cmd);
     exit(1);
     return ExceptionContinueExecution;
 }

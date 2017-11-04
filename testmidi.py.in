@@ -1,13 +1,28 @@
 #!/usr/bin/env python
+#  ____     _____________      _____   ___________   ___
+# |    |\  |   \______   \    /     \ |   \______ \ |   |\
+# |    ||  |   ||    |  _/\  /  \ /  \|   ||    |  \|   ||
+# |    ||__|   ||    |   \/ /    Y    \   ||    `   \   ||
+# |________\___||________/\ \____|____/___/_________/___||
+#  \________\___\________\/  \____\____\__\_________\____\
+#
+
 from __future__ import print_function
 import os
 import subprocess
 from shutil import copyfile
 
 
-tool_path = os.path.join(r'${CMAKE_CURRENT_BINARY_DIR}', 'Debug', 'miditool.exe')
-test_path = os.path.join(r'${CMAKE_SOURCE_DIR}', 'data')
-fail_path = os.path.join(r'${CMAKE_SOURCE_DIR}', 'fails')
+tool_path = os.path.join(
+    r'${CMAKE_CURRENT_BINARY_DIR}',
+    'Debug',
+    'miditool.exe')
+test_path = os.path.join(
+    r'${CMAKE_SOURCE_DIR}',
+    'data')
+fail_path = os.path.join(
+    r'${CMAKE_SOURCE_DIR}',
+    'fails')
 tested = 0
 failed = []
 

@@ -146,9 +146,9 @@ struct midi_track_t {
 
 struct midi_event_t {
     uint64_t delta;
-    uint16_t type;
-    uint8_t  meta;
-    uint8_t  channel;
+    uint32_t type;
+    uint32_t meta;
+    uint32_t channel;
     uint64_t length; // length of data field
     const uint8_t* data;
 };

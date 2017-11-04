@@ -223,6 +223,15 @@ void midi_stream_free(struct midi_stream_t* stream)
     free(stream);
 }
 
+static bool stream_overflow(struct midi_stream_t* stream)
+{
+    if (stream->ptr > stream->end) {
+        stream->ptr = stream->end;
+        return true;
+    }
+    return false;
+}
+
 static bool on_meta_event(struct midi_stream_t* stream, struct midi_event_t* event)
 {
     assert(stream && event);
@@ -239,6 +248,8 @@ static bool on_meta_event(struct midi_stream_t* stream, struct midi_event_t* eve
     event->meta = type;
     // step over meta event data
     stream->ptr += vlq_value;
+    if (stream_overflow(stream))
+        return false;
 
     if (type == 0x0 /* Sequence Number */) {
         strict(vlq_value == 2);
@@ -290,12 +301,12 @@ static bool on_midi_sysex(struct midi_stream_t* stream, struct midi_event_t* eve
         vlq_size = vlq_read(stream->ptr, &vlq_value);
         event->length = (vlq_size + vlq_value);
         stream->ptr += event->length;
-        return true;
+        return !stream_overflow(stream);
     case 0x07: /* escape sequence */
         vlq_size = vlq_read(stream->ptr, &vlq_value);
         event->length = (vlq_size + vlq_value);
         stream->ptr += event->length;
-        return true;
+        return !stream_overflow(stream);
     case 0x0F: /* meta event */
         return on_meta_event(stream, event);
     default: /* unknown sysex event */
@@ -303,7 +314,7 @@ static bool on_midi_sysex(struct midi_stream_t* stream, struct midi_event_t* eve
         vlq_size = vlq_read(stream->ptr, &vlq_value);
         event->length = (vlq_size + vlq_value);
         stream->ptr += event->length;
-        return true;
+        return !stream_overflow(stream);
     }
 }
 
@@ -321,7 +332,7 @@ static bool on_midi_cc(struct midi_stream_t* stream, struct midi_event_t* event)
         event->type = e_midi_event_channel_mode;
     }
     stream->ptr += (event->length = 2);
-    return true;
+    return !stream_overflow(stream);
 }
 
 bool midi_event_peek(struct midi_stream_t* stream, struct midi_event_t* event)
@@ -340,7 +351,7 @@ bool midi_event_delta(struct midi_stream_t* stream, uint64_t* delta)
     }
     // parse delta time
     vlq_read(stream->ptr, delta);
-    return true;
+    return !stream_overflow(stream);
 }
 
 bool midi_event_next(struct midi_stream_t* stream, struct midi_event_t* event)
@@ -363,11 +374,11 @@ bool midi_event_next(struct midi_stream_t* stream, struct midi_event_t* event)
         cmd = stream->prevEvent;
     }
     // output known event data
-    event->type = cmd & 0xf0;
+    event->type    = cmd & 0xf0;
     event->channel = cmd & 0x0f;
-    event->data = stream->ptr;
-    event->length = 0;
-    event->meta = 0;
+    event->data    = stream->ptr;
+    event->length  = 0;
+    event->meta    = 0;
     // parse for length
     switch (event->type) {
     case e_midi_event_note_off:
@@ -375,11 +386,11 @@ bool midi_event_next(struct midi_stream_t* stream, struct midi_event_t* event)
     case e_midi_event_poly_aftertouch:
     case e_midi_event_pitch_wheel:
         stream->ptr += (event->length = 2);
-        return true;
+        break;
     case e_midi_event_prog_change:
     case e_midi_event_chan_aftertouch:
         stream->ptr += (event->length = 1);
-        return true;
+        break;
     case e_midi_event_sysex:
         return on_midi_sysex(stream, event);
     case e_midi_event_ctrl_change:
@@ -387,7 +398,7 @@ bool midi_event_next(struct midi_stream_t* stream, struct midi_event_t* event)
     default:
         assert(!"unknown event type");
     }
-    return false;
+    return !stream_overflow(stream);
 }
 
 bool midi_stream_end(struct midi_stream_t* stream)
