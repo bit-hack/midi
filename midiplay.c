@@ -65,8 +65,8 @@ static double frequency;
 // processor counter at program start
 static LARGE_INTEGER counter_start;
 
-static double sys_milliseconds() {
-
+static double sys_milliseconds()
+{
   LARGE_INTEGER counter = { 0 };
   QueryPerformanceCounter(&counter);
 
@@ -169,11 +169,12 @@ static void handle_delta(uint64_t delta)
       }
 
       // yield the processor in our waiting loop
-      Sleep(0);
+      Sleep(1);
     }
 }
 
-static uint64_t read_number(const uint8_t *ptr, uint64_t len) {
+static uint64_t read_number(const uint8_t *ptr, uint64_t len)
+{
     uint64_t out = 0;
     for (; len--; ++ptr) {
         out = (out * 256) | (*ptr);
@@ -211,35 +212,6 @@ static void handle_event(const struct midi_event_t* event, uint64_t delta)
         handle_meta(event);
         break;
     }
-}
-
-static int play_tracks(struct midi_t* mid)
-{
-    // itterate over tracks
-    for (int i = 0; i < mid->num_tracks; ++i) {
-
-        // get the midi stream
-        struct midi_stream_t* stream = midi_stream(mid, i);
-        if (!stream) {
-            return 1;
-        }
-
-        // itterate over all of the events
-        struct midi_event_t event;
-        while (!midi_stream_end(stream)) {
-
-            // get the next event in the stream
-            if (!midi_event_next(stream, &event)) {
-                return 1;
-            }
-
-            handle_event(&event, event.delta);
-        }
-
-        // release the midi stream
-        midi_stream_free(stream);
-    }
-    return 0;
 }
 
 static int play_demux_events(struct midi_t* mid)
@@ -314,15 +286,7 @@ int main(const int argc, const char* args[])
     QueryPerformanceCounter(&counter_start);
 
     // run the play loop
-    int ret_val = 0;
-    switch (1 /* mode */) {
-    case 0:
-        ret_val = play_tracks(midi);
-        break;
-    case 1:
-        ret_val = play_demux_events(midi);
-        break;
-    }
+    int ret_val = play_demux_events(midi);
 
     // release midi file
     midi_free(midi);
