@@ -27,13 +27,14 @@ struct file_t {
     size_t size_;
 };
 
-HMIDIOUT hmidiout;
+// the output midi device handle
+static HMIDIOUT hmidiout;
 
-struct midi_t* midi;
+// the midi file we are parsing
+static struct midi_t* midi;
 
-double milliseconds;
-
-ULONGLONG startTicks = 0;
+// accumulate midi event times in milliseconds
+static double milliseconds;
 
 // tempo:
 //
@@ -43,7 +44,7 @@ ULONGLONG startTicks = 0;
 //  1,000,000 microseconds per second
 //      1,000 microseconds per millisecond
 // set the tempo to 60000000 / 500000 = 120 quarter notes per minute (120 beats per minute)
-uint64_t tempo = 500000;  // 120 bpm
+static uint64_t tempo = 500000;  // 120 bpm
 
 // midi file divisions:
 //
@@ -58,48 +59,58 @@ uint64_t tempo = 500000;  // 120 bpm
 // A beat is the same as a quarter note.
 // Beats are divided into ticks, the smallest unit of time in MIDI.
 
-double frequency;
-LARGE_INTEGER counterStart;
+// current processor counter frequency
+static double frequency;
 
-static double sysMilliseconds() {
+// processor counter at program start
+static LARGE_INTEGER counter_start;
+
+static double sys_milliseconds() {
 
   LARGE_INTEGER counter = { 0 };
   QueryPerformanceCounter(&counter);
 
-  return (double)(counter.QuadPart - counterStart.QuadPart) * 1000.0 / (double)frequency;
+  const uint64_t diff = counter.QuadPart - counter_start.QuadPart;
+  return (double)diff * 1000.0 / (double)frequency;
 }
 
-static double ticksToMilliseconds(uint64_t ticks) {
+static double ticks_to_milliseconds(uint64_t ticks) {
     double usPerTick     = (double)tempo / (double)(midi->divisions);
     double millisPerTick = usPerTick / 1000.0;
     double millis        = millisPerTick * ticks;
     return millis;
 }
 
-static bool midiOpen()
+static bool midi_open()
 {
     MMRESULT res = { 0 };
 
     UINT numDevices = midiOutGetNumDevs();
     if (numDevices == 0) {
+        fprintf(stderr, "midiOutGetNumDevs() reports no midi devices\n");
         return false;
     }
 
     MIDIOUTCAPS caps = { 0 };
     res = midiOutGetDevCaps(0, &caps, sizeof(caps));
     if (res != MMSYSERR_NOERROR) {
+        fprintf(stderr, "midiOutGetDevCaps() failed\n");
         return false;
     }
+    printf("Using MIDI device '%s'\n", caps.szPname);
 
+    // default to midi device 0 here which is the SW Synth on my PC
     UINT deviceid = 0;
     res = midiOutOpen(&hmidiout, deviceid, 0, 0, CALLBACK_NULL);
     if (res != MMSYSERR_NOERROR) {
+      fprintf(stderr, "midiOutOpen() failed\n");
       return false;
     }
 
     return true;
 }
 
+// send a midi event to the midi device
 static void midi_send(const struct midi_event_t* event)
 {
     union {
@@ -115,7 +126,7 @@ static void midi_send(const struct midi_event_t* event)
     midiOutShortMsg(hmidiout, u.dwData);
 }
 
-static void midiClose()
+static void midi_close()
 {
     midiOutClose(hmidiout);
 }
@@ -145,109 +156,19 @@ error:
 #undef TRY
 }
 
-static const char* eventName(uint32_t type)
-{
-    switch (type) {
-    case e_midi_event_note_off:
-        return "note off";
-    case e_midi_event_note_on:
-        return "note on";
-    case e_midi_event_poly_aftertouch:
-        return "poly aftertouch";
-    case e_midi_event_ctrl_change:
-        return "ctrl change";
-    case e_midi_event_prog_change:
-        return "prog change";
-    case e_midi_event_chan_aftertouch:
-        return "chan aftertouch";
-    case e_midi_event_pitch_wheel:
-        return "pitch wheel";
-    case e_midi_event_sysex:
-        return "sysex";
-    case e_midi_event_meta:
-        return "meta";
-    case e_midi_event_sysex_end:
-        return "sysex end";
-    case e_midi_event_channel_mode:
-        return "channel mode";
-    default:
-        return "unknown";
-    }
-}
-
-static const char* metaEventName(uint32_t type)
-{
-    switch (type) {
-    case e_midi_meta_sequence_number:
-        return "sequence_number";
-    case e_midi_meta_text:
-        return "text";
-    case e_midi_meta_copyright:
-        return "copyright";
-    case e_midi_meta_track_name:
-        return "track_name";
-    case e_midi_meta_inst_name:
-        return "inst_name";
-    case e_midi_meta_lyric:
-        return "lyric";
-    case e_midi_meta_marker:
-        return "marker";
-    case e_midi_meta_cue_point:
-        return "cue_point";
-    case e_midi_meta_prog_name:
-        return "prog_name";
-    case e_midi_meta_device_name:
-        return "device_name";
-    case e_midi_meta_chan_prefix:
-        return "chan_prefix";
-    case e_midi_meta_port:
-        return "port";
-    case e_midi_meta_end_of_track:
-        return "end_of_track";
-    case e_midi_meta_tempo:
-        return "tempo";
-    case e_midi_meta_smpte_offset:
-        return "smpte_offset";
-    case e_midi_meta_time_signature:
-        return "time_signature";
-    case e_midi_meta_key_signature:
-        return "key_signature";
-    case e_midi_meta_seq_event:
-        return "seq_event";
-    default:
-        return "unknown";
-    }
-}
-
-static void print_event(const struct midi_event_t* event)
-{
-    const char* name = eventName(event->type);
-
-    printf("%6llu: [%02x:%s:%s] %02x ",
-        (uint64_t)event->delta,
-        (uint32_t)event->type,
-        name,
-        (event->type == e_midi_event_meta) ? metaEventName(event->meta) : "",
-        (uint32_t)event->channel);
-
-    for (size_t i = 0; i < event->length; ++i) {
-        printf("%c%02x", ((i == 0) ? '{' : ' '), event->data[i]);
-    }
-
-    printf("}\n");
-}
-
 static void handle_delta(uint64_t delta)
 {
-    milliseconds += ticksToMilliseconds(delta);
+    // accumulate for target time in milliseconds
+    milliseconds += ticks_to_milliseconds(delta);
 
+    // wait until we reach out target time
     for (;;) {
-      double l = sysMilliseconds();
-
+      const double l = sys_milliseconds();
       if (l > milliseconds) {
           break;
       }
 
+      // yield the processor in our waiting loop
       Sleep(0);
     }
 }
@@ -269,10 +190,10 @@ static void handle_meta(const struct midi_event_t* event)
     }
 }
 
-static void handle_event(const struct midi_event_t* event)
+static void handle_event(const struct midi_event_t* event, uint64_t delta)
 {
     // wait for a period of time
-    handle_delta(event->delta);
+    handle_delta(delta);
 
     // apply the event
     switch (event->type) {
@@ -292,7 +213,7 @@ static void handle_event(const struct midi_event_t* event)
     }
 }
 
-static int dump_tracks(struct midi_t* mid)
+static int play_tracks(struct midi_t* mid)
 {
     // itterate over tracks
     for (int i = 0; i < mid->num_tracks; ++i) {
@@ -303,25 +224,27 @@ static int dump_tracks(struct midi_t* mid)
             return 1;
         }
 
-        printf("Track %d\n", i);
-
         // itterate over all of the events
         struct midi_event_t event;
         while (!midi_stream_end(stream)) {
+
+            // get the next event in the stream
             if (!midi_event_next(stream, &event)) {
                 return 1;
             }
 
-            print_event(&event);
-            handle_event(&event);
+            handle_event(&event, event.delta);
         }
+
+        // release the midi stream
         midi_stream_free(stream);
     }
     return 0;
 }
 
-static int dump_demux_events(struct midi_t* mid)
+static int play_demux_events(struct midi_t* mid)
 {
+    // create streams for each track in the midi file
 #define MAX_STREAMS 256
     struct midi_stream_t* streams[MAX_STREAMS] = { NULL };
     uint64_t times[MAX_STREAMS] = { 0 };
@@ -332,14 +255,21 @@ static int dump_demux_events(struct midi_t* mid)
         }
     }
 
+    // play events in a loop
     struct midi_event_t event;
-    uint64_t time = 0;
-    size_t index = 0;
+    uint64_t lastTime = 0;
+    uint64_t time     = 0;
+    size_t   index    = 0;
     while (midi_stream_mux(streams, times, mid->num_tracks, &event, &time, &index)) {
-        printf("%8llu %02x", time, (int)index);
-        print_event(&event);
+
+        // work out delta since last event
+        const uint64_t delta = time - lastTime;
+        lastTime = time;
+        // dispatch the event
+        handle_event(&event, delta);
     }
 
+    // release all of the tracks
     for (int i = 0; i < mid->num_tracks; ++i) {
         assert(streams[i]);
         midi_stream_free(streams[i]);
@@ -352,6 +282,7 @@ static int dump_demux_events(struct midi_t* mid)
 int main(const int argc, const char* args[])
 {
     if (argc < 2) {
+        fprintf(stderr, "Midi file argument required\n");
         return 1;
     }
 
@@ -359,35 +290,44 @@ int main(const int argc, const char* args[])
     struct file_t file;
     const char* path = args[1];
     if (!file_load(path, &file)) {
+        fprintf(stderr, "Unable open file\n");
         return 1;
     }
 
     // parse as midi
     midi = midi_load(file.file_, file.size_);
     if (!midi) {
+        fprintf(stderr, "Unable to parse midi file\n");
         return 1;
     }
 
-    midiOpen();
+    // open the output midi device
+    if (!midi_open()) {
+        fprintf(stderr, "Unable to open midi device\n");
+        return 1;
+    }
 
+    // start the performance timer
     LARGE_INTEGER freq;
     QueryPerformanceFrequency(&freq);
     frequency = (double)freq.QuadPart;
+    QueryPerformanceCounter(&counter_start);
 
-    QueryPerformanceCounter(&counterStart);
-
+    // run the play loop
     int ret_val = 0;
-    switch (0 /* mode */) {
+    switch (1 /* mode */) {
     case 0:
-        ret_val = dump_tracks(midi);
+        ret_val = play_tracks(midi);
         break;
     case 1:
-        ret_val = dump_demux_events(midi);
+        ret_val = play_demux_events(midi);
         break;
     }
-    midi_free(midi);
 
-    midiClose();
+    // release midi file
+    midi_free(midi);
+    // shutdown midi device
+    midi_close();
 
     // success
     return ret_val;

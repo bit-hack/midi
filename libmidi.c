@@ -410,20 +410,21 @@ bool midi_stream_end(struct midi_stream_t* stream)
 }
 
 bool midi_stream_mux(
-    struct midi_stream_t** stream,
-    uint64_t* delta,
-    const size_t count,
-    struct midi_event_t* event,
-    uint64_t* delta_out,
-    size_t* index)
+    struct midi_stream_t **stream,
+    uint64_t              *delta,
+    const size_t           count,
+    struct midi_event_t   *event,
+    uint64_t              *delta_out,
+    size_t                *index)
 {
     assert(stream && delta && count && event);
     static const uint64_t invalid = ~0llu;
     struct midi_stream_t* next = NULL;
     uint64_t* next_delta = NULL;
-    uint64_t min_delta = invalid;
+    uint64_t  min_delta = invalid;
     // select track with nearest pending event
     for (size_t i = 0; i < count; ++i) {
+
         uint64_t cur_delta;
         if (!midi_event_delta(stream[i], &cur_delta)) {
             // unable to parse, stream likely ended
@@ -434,22 +435,26 @@ bool midi_stream_mux(
             // event is not closest pending
             continue;
         }
-        min_delta = cur_delta;
+        min_delta  = cur_delta;
+
         // save new stream pointers
-        next = stream[i];
+        next       = stream[i];
         next_delta = delta + i;
-        *index = i;
+        *index     = i;
     }
+
     // will be null if all tracks have ended
     if (next == NULL || next_delta == NULL) {
         return false;
     }
+
     // parse midi event from stream
     if (!midi_event_next(next, event)) {
         return false;
     }
+
     // save event timing
     *next_delta = min_delta;
-    *delta_out = min_delta;
+    *delta_out  = min_delta;
     return true;
 }
