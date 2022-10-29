@@ -97,14 +97,16 @@ enum {
 static size_t vlq_read(const uint8_t* restrict in, uint64_t* restrict out)
 {
     size_t read = 1;
-    uint64_t accum = 0, shl = 0;
+    uint64_t accum = 0;
     for (;; ++read) {
         const uint64_t c = *(in++);
-        accum |= ((uint64_t)(c & 0x7full)) << shl;
+
+        accum <<= 7;
+        accum |= c & 0x7full;
+
         if ((c & e_CMASK) == 0) {
             break;
         }
-        shl += 7;
     }
     out ? (*out = accum) : (void)0;
     return read;

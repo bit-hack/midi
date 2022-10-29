@@ -80,53 +80,41 @@ enum midi_event_type_t {
 };
 
 enum midi_event_meta_type_t {
-    // 0
-    e_midi_meta_sequence_number,
-    // 1
-    e_midi_meta_text,
-    // 2
-    e_midi_meta_copyright,
-    // 3
-    e_midi_meta_track_name,
-    // 4
-    e_midi_meta_inst_name,
-    // 5
-    e_midi_meta_lyric,
-    // 6
-    e_midi_meta_marker,
-    // 7
-    e_midi_meta_cue_point,
-    // 8
-    e_midi_meta_prog_name,
-    // 9
-    e_midi_meta_device_name,
-    // 20
-    e_midi_meta_chan_prefix,
-    // 21
-    e_midi_meta_port,
-    // 2f
-    e_midi_meta_end_of_track,
-    // 51
-    e_midi_meta_tempo,
-    // 54
-    e_midi_meta_smpte_offset,
-    // 58
-    e_midi_meta_time_signature,
-    // 59
-    e_midi_meta_key_signature,
-    // 7f
-    e_midi_meta_seq_event,
+    e_midi_meta_sequence_number = 0x0,
+    e_midi_meta_text            = 0x1,
+    e_midi_meta_copyright       = 0x2,
+    e_midi_meta_track_name      = 0x3,
+    e_midi_meta_inst_name       = 0x4,
+    e_midi_meta_lyric           = 0x5,
+    e_midi_meta_marker          = 0x6,
+    e_midi_meta_cue_point       = 0x7,
+    e_midi_meta_prog_name       = 0x8,
+    e_midi_meta_device_name     = 0x9,
+    e_midi_meta_chan_prefix     = 0x20,
+    e_midi_meta_port            = 0x21,
+    e_midi_meta_end_of_track    = 0x2f,
+
+    // in microseconds per quarter note
+    // ff 51 03 tttttt
+    e_midi_meta_tempo           = 0x51,
+    e_midi_meta_smpte_offset    = 0x54,
+
+    // time signature
+    // ff 58 04 nn dd cc bb
+    e_midi_meta_time_signature  = 0x58,
+    e_midi_meta_key_signature   = 0x59,
+    e_midi_meta_seq_event       = 0x7f,
 };
 
 enum midi_channel_mode_type_t {
-    e_midi_cmode_all_sound_off          = 120,
-    e_midi_cmode_reset_all_controllers  = 121,
-    e_midi_cmode_local_control          = 122,
-    e_midi_cmode_all_notes_off          = 123,
-    e_midi_cmode_omni_mode_off          = 124,
-    e_midi_cmode_omni_mode_on           = 125,
-    e_midi_cmode_mono_mode_on           = 126,
-    e_midi_cmode_poly_mode_on           = 127,
+    e_midi_cmode_all_sound_off         = 120,
+    e_midi_cmode_reset_all_controllers = 121,
+    e_midi_cmode_local_control         = 122,
+    e_midi_cmode_all_notes_off         = 123,
+    e_midi_cmode_omni_mode_off         = 124,
+    e_midi_cmode_omni_mode_on          = 125,
+    e_midi_cmode_mono_mode_on          = 126,
+    e_midi_cmode_poly_mode_on          = 127,
 };
 
 struct midi_t {
@@ -134,6 +122,10 @@ struct midi_t {
     uint32_t length;
     uint16_t format;
     uint16_t num_tracks;
+
+    // bit 15:
+    //  - 0 ticks per quarter-note
+    //  - 1 negative SMPTE format
     uint16_t divisions;
     struct midi_track_t* tracks;
 };

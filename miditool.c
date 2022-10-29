@@ -56,23 +56,65 @@ static char toPrintableAscii(const char ch)
     return (ch >= 32 && ch <= 126) ? ch : '.';
 }
 
+static const char* eventName(uint32_t type)
+{
+    switch (type) {
+    case e_midi_event_note_off:        return "note off";
+    case e_midi_event_note_on:         return "note on";
+    case e_midi_event_poly_aftertouch: return "poly aftertouch";
+    case e_midi_event_ctrl_change:     return "ctrl change";
+    case e_midi_event_prog_change:     return "prog change";
+    case e_midi_event_chan_aftertouch: return "chan aftertouch";
+    case e_midi_event_pitch_wheel:     return "pitch wheel";
+    case e_midi_event_sysex:           return "sysex";
+    case e_midi_event_meta:            return "meta";
+    case e_midi_event_sysex_end:       return "sysex end";
+    case e_midi_event_channel_mode:    return "channel mode";
+    default:                           return "unknown";
+    }
+}
+
+static const char* metaEventName(uint32_t type)
+{
+    switch (type) {
+    case e_midi_meta_sequence_number: return "sequence_number";
+    case e_midi_meta_text:            return "text";
+    case e_midi_meta_copyright:       return "copyright";
+    case e_midi_meta_track_name:      return "track_name";
+    case e_midi_meta_inst_name:       return "inst_name";
+    case e_midi_meta_lyric:           return "lyric";
+    case e_midi_meta_marker:          return "marker";
+    case e_midi_meta_cue_point:       return "cue_point";
+    case e_midi_meta_prog_name:       return "prog_name";
+    case e_midi_meta_device_name:     return "device_name";
+    case e_midi_meta_chan_prefix:     return "chan_prefix";
+    case e_midi_meta_port:            return "port";
+    case e_midi_meta_end_of_track:    return "end_of_track";
+    case e_midi_meta_tempo:           return "tempo";
+    case e_midi_meta_smpte_offset:    return "smpte_offset";
+    case e_midi_meta_time_signature:  return "time_signature";
+    case e_midi_meta_key_signature:   return "key_signature";
+    case e_midi_meta_seq_event:       return "seq_event";
+    default:                          return "unknown";
+    }
+}
+
 static void print_event(const struct midi_event_t* event)
 {
-    printf("%6llu: [%02x] %02x ",
+    const char* name = eventName(event->type);
+
+    printf("%6llu: [%02x:%s:%s] %02x ",
         (uint64_t)event->delta,
         (uint32_t)event->type,
-        (uint32_t)event->channel);
-#if AS_HEX || 1
+        name,
+        (event->type == e_midi_event_meta) ? metaEventName(event->meta) : "",
+        (uint32_t)event->channel
+    );
+
     for (size_t i = 0; i < event->length; ++i) {
         printf("%c%02x", ((i == 0) ? '{' : ' '), event->data[i]);
     }
-#else
-    printf("{");
-    for (size_t i = 0; i < event->length; ++i) {
-        const char data = toPrintableAscii(event->data[i]);
-        printf("%c", data);
-    }
-#endif
+
     printf("}\n");
 }
 
@@ -108,6 +150,7 @@ int dump_demux_events(struct midi_t* mid)
             return 1;
         }
     }
+
     struct midi_event_t event;
     uint64_t time = 0;
     size_t index = 0;
@@ -115,10 +158,12 @@ int dump_demux_events(struct midi_t* mid)
         printf("%8llu %02x", time, (int)index);
         print_event(&event);
     }
+
     for (int i = 0; i < mid->num_tracks; ++i) {
         assert(streams[i]);
         midi_stream_free(streams[i]);
     }
+
 #undef MAX_STREAMS
     return 0;
 }
@@ -142,7 +187,7 @@ int main(const int argc, const char* args[])
     }
 #endif
 
-    freopen("null", "wb", stdout);
+//    freopen("null", "wb", stdout);
 
     if (argc < 2) {
         return 1;

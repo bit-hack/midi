@@ -10,4 +10,7 @@ add_library(libmidi libmidi.c libmidi.h)
 add_executable(miditool miditool.c)
 target_link_libraries(miditool libmidi)
 
+add_executable(midiplay midiplay.c)
+target_link_libraries(midiplay libmidi Winmm.lib)
+
 configure_file(testmidi.py.in testmidi.py)
