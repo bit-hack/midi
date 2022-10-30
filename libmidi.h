@@ -27,8 +27,8 @@ enum midi_event_type_t {
 
     // note off
     // 1000nnnn [0- 15] channel
-    // 0kkkkkkk [0-127]
-    // 0vvvvvvv [0-127]
+    // 0kkkkkkk [0-127] key
+    // 0vvvvvvv [0-127] velocity
     e_midi_event_note_off = 0x80,
 
     // note on
@@ -56,8 +56,8 @@ enum midi_event_type_t {
     e_midi_event_prog_change = 0xc0,
 
     // channel aftertouch
-    // 1101nnnn
-    // 0vvvvvvv
+    // 1101nnnn [0- 15] channel
+    // 0vvvvvvv [0-127] velocity
     e_midi_event_chan_aftertouch = 0xd0,
 
     // 1110nnnn
