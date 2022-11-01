@@ -142,7 +142,15 @@ static void handle_delta(uint64_t delta)
     // wait until we reach out target time
     for (;;) {
         const double l = timer_get_millis();
-        if (l > milliseconds) {
+        const double diff = l - milliseconds;
+
+        // resynchronoise if delayed for too long
+        if (diff >= 1000.0) {
+            milliseconds = l;
+            break;
+        }
+
+        if (diff >= 0.0) {
             break;
         }
 
@@ -240,8 +248,8 @@ int main(const int argc, const char* args[])
         return 1;
     }
 
-    if (1) device_windows_select();
-    if (0) device_adlib_select();
+    if (0) device_windows_select();
+    if (1) device_adlib_select();
 
     // load this raw file
     struct file_t file;

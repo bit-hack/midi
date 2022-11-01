@@ -187,7 +187,7 @@ int main(const int argc, const char* args[])
     }
 #endif
 
-//    freopen("null", "wb", stdout);
+    freopen("null", "wb", stdout);
 
     if (argc < 2) {
         return 1;
