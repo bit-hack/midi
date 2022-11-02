@@ -20,5 +20,6 @@ extern device_send_t  device_send;
 void device_windows_select(void);
 void device_adlib_select  (void);
 
+void oplpi_reset();
 void oplpi_write(uint8_t reg, uint8_t byte);
 void oplpi_init();

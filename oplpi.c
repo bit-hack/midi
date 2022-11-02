@@ -19,14 +19,19 @@ enum {
              // /RD   pullup    +
 };
 
-static void setA0(bool x)
+static void setA0(int x)
 {
     digitalWrite(A0, x);
 }
 
-static void setCS(bool x)
+static void setCS(int x)
 {
     digitalWrite(CS, x);
+}
+
+static void setIC(int x)
+{
+    digitalWrite(IC, x);
 }
 
 static void setDataLines(uint8_t d)
@@ -70,6 +75,22 @@ void oplpi_write(uint8_t reg, uint8_t byte)
     }
 }
 
+void oplpi_reset()
+{
+    // reset
+    pinMode(IC, OUTPUT);
+    // drive low activating reset
+    setIC(0);
+    // wait for reset to complete
+    delay(100);
+    // drive high bringing out of reset
+    setIC(1);
+    delay(100);
+
+    oplpi_write(0x01, 0x20); // wave select enable
+    oplpi_write(0xBD, 0xc0); // DEP AM VIB
+}
+
 void oplpi_init()
 {
     wiringPiSetup(NULL);
@@ -86,19 +107,10 @@ void oplpi_init()
 
     // control
     pinMode(A0, OUTPUT);
+    setA0(0);
+
     pinMode(CS, OUTPUT);
+    setCS(0);
 
-    // reset
-    pinMode(IC, OUTPUT);
-    digitalWrite(IC, 1);
-    delay(1);
-    digitalWrite(IC, 0);
-    delay(1);
-    digitalWrite(IC, 1);
-    pinMode(IC, INPUT);
-
-    // clear every register
-    for (uint32_t i = 0; i < 256; ++i) {
-        oplpi_write(i, 0x0);
-    }
+    oplpi_reset();
 }

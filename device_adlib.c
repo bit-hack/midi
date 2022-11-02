@@ -27,6 +27,7 @@
 
 #define OPL_CHANNELS   9u
 #define MIDI_CHANNELS 16u
+#define DRUM_CHANNEL   9u
 
 // event age counter
 static uint32_t ageCounter;
@@ -52,6 +53,56 @@ static uint8_t opl_regs[256];
 // ----------------------------------------------------------------------------
 // Lookup tables
 // ----------------------------------------------------------------------------
+
+/**
+ * phase_inc = fmus * 2^19 / fsam
+ * fsam      = fM / 72
+ * fmus      = desired frequency
+ * fsam      = sampling frequency       (50kHz)
+ * fM        = frequency of input clock (3.6Mhz)
+ *
+ * phase_inc = 2^B * F' * MUL
+ * B         = block
+ * F'        = increment limited to single octabe
+ * MUL       = multiple
+ *
+ * FNum      = (fmus * 2^19 / fsam) / 2^(block-1)
+ *
+ * FNum      = (fmus * 2^19 / 50000) / 2^(block-1)
+ *
+ * We can also map frequency to fnumber as follows:
+ *
+ *     // this table has values for (freq / fnum) per block
+ *     static const float intervals[8] = {
+ *         .048f, .095f, .190f, .379f, .759f, 1.517f, 3.034f, 6.069f
+ *     };
+ *     const float interval = intervals[block];
+ *     uint32_t fnumber = (uint32_t)(freq / interval);
+**/
+
+// key to block mapping
+static const uint8_t opl_block_table[128] = {
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+  2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 3,
+  3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 5, 5,
+  5, 5, 5, 5, 5, 5, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 6, 7, 7, 7,
+  7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7, 7,
+};
+
+// key to fnum mapping (some values are over 10bits)
+static const uint16_t opl_fnum_table[128] = {
+  182,  192,  204,  216,  229,  242,  257,  272,  288,  306, 324,  343,  363,
+  385,  408,  432,  458,  485,  514,  544,  577,  611,  647, 686,  727,  770,
+  816,  864,  915,  970,  514,  544,  577,  611,  647,  686, 727,  770,  816,
+  864,  915,  970,  514,  544,  577,  611,  647,  686,  727, 770,  816,  864,
+  915,  970,  514,  544,  577,  611,  647,  686,  727,  770, 816,  864,  915,
+  970,  514,  544,  577,  611,  647,  686,  727,  770,  816, 864,  915,  970,
+  514,  544,  577,  611,  647,  686,  727,  770,  816,  864, 915,  970,  514,
+  544,  577,  611,  647,  686,  727,  770,  816,  864,  915, 970,  514,  544,
+  577,  611,  647,  686,  727,  770,  816,  864,  915,  970, 1028, 1089, 1153,
+  1222, 1295, 1372, 1453, 1540, 1631, 1728, 1831, 1940,
+};
 
 // logarithmic relationship between midi and FM volumes
 static uint8_t opl_volume_table[128] = {
@@ -97,13 +148,19 @@ static uint32_t opl_channel_index(const struct opl_channel_t* oc)
 }
 
 // allocate the most suitable OPL channel
-static struct opl_channel_t* opl_channel_alloc(void)
+static struct opl_channel_t* opl_channel_alloc(uint32_t channel, uint32_t key)
 {
     struct opl_channel_t* best = &opl_channel[0];
 
     for (uint32_t i = 1; i < OPL_CHANNELS; ++i) {
 
         struct opl_channel_t* oc = &opl_channel[i];
+
+        // reuse an existing channel and key if we can
+        if (oc->midi_channel == channel && oc->midi_key == key) {
+            // this is optimal so just return it immediately
+            return oc;
+        }
 
         // steal if non active
         if (best->active && (!oc->active)) {
@@ -130,15 +187,18 @@ static struct opl_channel_t* opl_channel_find(uint32_t midi_channel, uint32_t ke
 {
     for (uint32_t i = 0; i < OPL_CHANNELS; ++i) {
         struct opl_channel_t* oc = &opl_channel[i];
+
+        // only look for active channels
         if (!oc->active) {
             continue;
         }
-        if (oc->midi_key != key) {
+
+        // key and channel need to match
+        if (oc->midi_key     != key ||
+            oc->midi_channel != midi_channel) {
             continue;
         }
-        if (oc->midi_channel != midi_channel) {
-            continue;
-        }
+
         return oc;
     }
 
@@ -153,12 +213,26 @@ static void opl_note_off(uint32_t channel)
     opl_reg_write(0xb0 + channel, 0x00, 1u << 5);
 }
 
-static void opl_note_on(uint32_t channel)
+static void opl_note_on(uint32_t channel, uint32_t key)
 {
-    assert(channel < OPL_CHANNELS);
+    assert(channel <  OPL_CHANNELS);
+    assert(key     <= 127);
 
-    // set key-on bit for this channel
-    opl_reg_write(0xb0 + channel, 0xff, 1u << 5);
+    // the key_on 0xb0 register bit
+    const uint8_t key_on = (1 << 5);
+
+          uint32_t fnumber = opl_fnum_table[key];
+    const uint32_t block   = opl_block_table[key];
+
+    // some midi keys cant fit in the 3bit block and 10bit fnumber
+    // so just clamp them
+    fnumber = (fnumber >= 1023) ? 1023 : fnumber;
+
+    const uint8_t ra0 = fnumber & 0xff;
+    const uint8_t rb0 = ((block & 0x7) << 2) | ((fnumber & 0x300) >> 8) | key_on;
+
+    opl_reg_write(0xa0 + channel, ra0, 0xff);
+    opl_reg_write(0xb0 + channel, rb0, 0x3f);
 }
 
 static void opl_program_set(uint32_t channel, const uint8_t* data)
@@ -182,105 +256,40 @@ static void opl_program_set(uint32_t channel, const uint8_t* data)
     }
 }
 
-// see which block value a frequency falls on
-static const uint8_t get_frequency_block(float freq)
+static void opl_channel_volume(uint32_t channel, uint32_t velocity)
 {
-    static const float block_frequencies[8] = {
-        48.503f, 97.006f, 194.013f, 388.026f, 776.053f, 1552.107f, 3104.215f, 6208.431f
-    };
-
-    for (uint8_t i = 0; i < 8; i++) {
-        if (freq < block_frequencies[i]) {
-            return i;
-        }
-    }
-
-    return 7;
-}
-
-static void opl_set_fnumber(uint32_t channel, float freq)
-{
-    assert(channel < MIDI_CHANNELS);
-
-    // https://github.com/DhrBaksteen/ArduinoOPL2/blob/master/src/OPL2.h
-    // https://nerdlypleasures.blogspot.com/2018/01/opl23-frequency-1hz-ish-difference.html
-
-    static const float intervals[8] = {
-        .048f, .095f, .190f, .379f, .759f, 1.517f, 3.034f, 6.069f
-    };
-
-    // find the best block for our frequency
-    const uint8_t block = get_frequency_block(freq);
-
-    // find the frequency interval for this block
-    const float interval = intervals[block];
-
-    uint32_t fnumber = (uint32_t)(freq / interval);
-    fnumber = (fnumber >= 1024) ? 1023 : fnumber;
-
-    //    |                 |
-    // A0 | f f f f f f f f | (f) fnumber-low
-    // A8 | f f f f f f f f | (F) fnumber-hi
-    // B0 | . . K B B B F F | (B) block
-    // B8 | . . K B B B F F | (K) key on
-    //    |                 |
-
-    const uint8_t a = fnumber & 0xff;
-    const uint8_t b = ((block & 0x7) << 2) | ((fnumber & 0x300) >> 8);
-
-    opl_reg_write(0xa0 + channel, a, 0xff);
-    opl_reg_write(0xb0 + channel, b, 0x1f);
+  // 
 }
 
 // ----------------------------------------------------------------------------
 // Midi event handling
 // ----------------------------------------------------------------------------
 
-static float note_freq(uint8_t key)
+static void drum_on(const uint32_t key, const uint32_t velocity)
 {
-    // key  hz
-    // 69   440.0
-    // freq = 440.f * 2 ^ ((n-69) / 12)
+    struct opl_channel_t* oc = opl_channel_alloc(DRUM_CHANNEL, key);
+    const uint32_t ci = opl_channel_index(oc);
+    oc->age           = ageCounter;
+    oc->midi_key      = key;
+    oc->midi_channel  = DRUM_CHANNEL;
+    oc->midi_velocity = velocity;
+    oc->active        = true;
 
-    // static const float freqTable[] = {
-    //     6644.875161279122f, // 116
-    //     7040.0f           , // 117
-    //     7458.620184289437f, // 118
-    //     7902.132820097988f, // 119
-    //     8372.018089619156f, // 120
-    //     8869.844191259906f, // 121
-    //     9397.272573357044f, // 122
-    //     9956.06347910659f , // 123
-    //    10548.081821211836f, // 124
-    //    11175.303405856126f, // 125
-    //    11839.8215267723f  , // 126
-    //    12543.853951415975f, // 127
-    // };
+    if (key < 35 || key > 75) {
+      // not a valid drum note
+      return;
+    }
 
-    return 440.f * powf(2.f, ((float)key - 69.f) / 12.f);
+    // upload program to OPL channel
+    const uint8_t* program = opl_drums_table_miles[key - 35];
+    opl_program_set(ci, program);
+
+    // set channel volume
+    opl_channel_volume(ci, velocity);
+
+    // send key-on to OPL
+    opl_note_on(ci, 35);
 }
-
-#if 0
-static void opl_set_note(uint32_t channel, uint32_t note, uint32_t volume)
-{
-    // note: these pitches are too high for some reason
-
-    static uint16_t fnums[] = {
-      0x16b, 0x181, 0x198, 0x1b0, 0x1ca, 0x1e5, 0x202, 0x220, 0x241, 0x263, 0x287, 0x2ae
-    };
-
-    if (note < 0)
-        return;
-
-    uint16_t freq  = fnums[note % 12];
-    uint16_t block = note / 12;
-    uint8_t  keyon = (1 << 5);
-    uint8_t  pack  = ((freq >> 8) & 0x3) | ((block & 7) << 2) | keyon;
-
-    opl_reg_write(0xa0 + channel, freq & 0xff, 0xff);
-    opl_reg_write(0xb0 + channel, pack,        0xff);
-}
-#endif
 
 static void note_on(const struct midi_event_t* event)
 {
@@ -290,10 +299,6 @@ static void note_on(const struct midi_event_t* event)
 
     assert(channel < MIDI_CHANNELS);
     assert(key < 256);
-
-    if (channel == 9 /* skip drums for now */) {
-        return;
-    }
 
     if (velocity == 0) {
 
@@ -308,7 +313,12 @@ static void note_on(const struct midi_event_t* event)
         return;
     }
 
-    struct opl_channel_t* oc = opl_channel_alloc();
+    if (channel == DRUM_CHANNEL) {
+        drum_on(key, velocity);
+        return;
+    }
+
+    struct opl_channel_t* oc = opl_channel_alloc(channel, key);
     const uint32_t        ci = opl_channel_index(oc);
     oc->age           = ageCounter;
     oc->midi_key      = key;
@@ -324,18 +334,11 @@ static void note_on(const struct midi_event_t* event)
     const uint8_t* program = opl_gm_table[midi_program];
     opl_program_set(ci, program);
 
-#if 1
     // set channel volume
-    // TODO
+    opl_channel_volume(ci, velocity);
 
-    // convert midi to frequency
-    const float freq = note_freq(key);
-    opl_set_fnumber(ci, freq);
     // send key-on to OPL
-    opl_note_on(ci);
-#else
-    opl_set_note(ci, key, velocity);
-#endif
+    opl_note_on(ci, key);
 }
 
 static void note_off(const struct midi_event_t* event)
@@ -383,11 +386,6 @@ static bool device_adlib_open(void)
 {
     oplpi_init();
 
-    // clear registers
-    for (uint32_t i = 0; i <= 0xff; ++i) {
-        opl_reg_write(i, 0, 0xff);
-    }
-
     return true;
 }
 
@@ -405,9 +403,7 @@ static void device_adlib_send(const struct midi_event_t* event)
 static void device_adlib_close(void)
 {
     // clear registers
-    for (uint32_t i = 0; i <= 0xff; ++i) {
-        opl_reg_write(i, 0, 0xff);
-    }
+    oplpi_reset();
 }
 
 void device_adlib_select(void)
