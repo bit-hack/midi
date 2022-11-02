@@ -141,6 +141,11 @@ static void opl_reg_write(uint32_t index, uint8_t value, uint8_t mask)
     }
 }
 
+static uint8_t opl_reg_read(uint32_t index)
+{
+    return opl_regs[index];
+}
+
 static uint32_t opl_channel_index(const struct opl_channel_t* oc)
 {
     size_t diff = oc - opl_channel;
@@ -256,9 +261,52 @@ static void opl_program_set(uint32_t channel, const uint8_t* data)
     }
 }
 
+static void opl_total_level(uint32_t slot, uint8_t value) {
+
+    assert(value <= 127);
+
+    const uint32_t level = opl_reg_read(0x40 + slot) & 0x3f;  // 6bit
+    const uint32_t vel   = opl_volume_table[value];           // 7bit
+    const uint32_t out   = (level * vel) >> 7;
+
+    opl_reg_write(0x40 + slot, out, 0x3f);
+}
+
 static void opl_channel_volume(uint32_t channel, uint32_t velocity)
 {
-  // 
+  assert(channel < OPL_CHANNELS);
+
+  // check the operator configurations to see which levels we need to change
+
+  const uint8_t rc0 = opl_reg_read(0xC0 + channel);
+
+  uint8_t conn = rc0 & 0x01;
+
+  //               .--------.
+  //               V        |
+  // conn=0    P1 -+-- OP1 -o-+-- OP2 ----> OUT
+  //                          ^
+  //                          |
+  //                          P2
+
+  //               .--------.
+  //               V        |
+  // conn=1    P1 -+-- OP1 -o-.
+  //                          |
+  //                          + ----> OUT
+  //                          |
+  //           P2 ---- OP2 ---'
+
+  const uint32_t op1 = opl_slot0[channel];
+  const uint32_t op2 = opl_slot1[channel];
+
+  // always level shift OP2
+  opl_total_level(op2, velocity);
+
+  // level shift OP1 in connection 1
+  if (conn) {
+    opl_total_level(op1, velocity);
+  }
 }
 
 // ----------------------------------------------------------------------------

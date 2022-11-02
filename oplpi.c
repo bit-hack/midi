@@ -4,19 +4,19 @@
 #include "wiringPi.h"
 
 enum {
-    D0 = 9,  // D0
-    D1 = 8,  // D1
+    D0 = 9, // D0
+    D1 = 8, // D1
     D2 = 12, // D2
     D3 = 13, // D3
-    D4 = 5,  // D4
-    D5 = 6,  // D5
-    D6 = 4,  // D6
-    D7 = 3,  // D7
+    D4 = 5, // D4
+    D5 = 6, // D5
+    D6 = 4, // D6
+    D7 = 3, // D7
     CS = 15, // /CS   pullup    +
     A0 = 16, // A0
-    WR = 7,  // /WR   pulldown  -
-    IC = 2,  // /IC   pullup    +
-             // /RD   pullup    +
+    WR = 7, // /WR   pulldown  -
+    IC = 2, // /IC   pullup    +
+    // /RD   pullup    +
 };
 
 static void setA0(int x)
@@ -48,7 +48,6 @@ static void setDataLines(uint8_t d)
 
 void oplpi_write(uint8_t reg, uint8_t byte)
 {
-    setCS(1);
     // write address
     {
         setA0(0);
@@ -57,7 +56,7 @@ void oplpi_write(uint8_t reg, uint8_t byte)
     }
     {
         setCS(0);
-        delayMicroseconds(10);
+        delayMicroseconds(10);  // latch
         setCS(1);
         delayMicroseconds(10);
     }
@@ -69,7 +68,7 @@ void oplpi_write(uint8_t reg, uint8_t byte)
     }
     {
         setCS(0);
-        delayMicroseconds(10);
+        delayMicroseconds(10); // latch
         setCS(1);
         delayMicroseconds(10);
     }
@@ -86,6 +85,11 @@ void oplpi_reset()
     // drive high bringing out of reset
     setIC(1);
     delay(100);
+
+    // clear all registers (should be done by reset anyways)
+    for (int i = 0; i < 256; ++i) {
+        oplpi_write(i, 0);
+    }
 
     oplpi_write(0x01, 0x20); // wave select enable
     oplpi_write(0xBD, 0xc0); // DEP AM VIB
@@ -110,7 +114,7 @@ void oplpi_init()
     setA0(0);
 
     pinMode(CS, OUTPUT);
-    setCS(0);
+    setCS(1);
 
     oplpi_reset();
 }
