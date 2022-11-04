@@ -261,12 +261,12 @@ static void opl_program_set(uint32_t channel, const uint8_t* data)
     }
 }
 
-static void opl_total_level(uint32_t slot, uint8_t value) {
-
-    assert(value <= 127);
+static void opl_total_level(uint32_t slot, uint8_t velocity)
+{
+    assert(velocity <= 127);
 
     const uint32_t level = opl_reg_read(0x40 + slot) & 0x3f;  // 6bit
-    const uint32_t vel   = opl_volume_table[value];           // 7bit
+    const uint32_t vel   = opl_volume_table[velocity]; // 7bit
     const uint32_t out   = (level * vel) >> 7;
 
     opl_reg_write(0x40 + slot, out, 0x3f);
@@ -303,7 +303,7 @@ static void opl_channel_volume(uint32_t channel, uint32_t velocity)
   // always level shift OP2
   opl_total_level(op2, velocity);
 
-  // level shift OP1 in connection 1
+  // level shift OP1 too when in connection 1
   if (conn) {
     opl_total_level(op1, velocity);
   }
@@ -313,7 +313,7 @@ static void opl_channel_volume(uint32_t channel, uint32_t velocity)
 // Midi event handling
 // ----------------------------------------------------------------------------
 
-static void drum_on(const uint32_t key, const uint32_t velocity)
+static void midi_drum_on(const uint32_t key, const uint32_t velocity)
 {
     struct opl_channel_t* oc = opl_channel_alloc(DRUM_CHANNEL, key);
     const uint32_t ci = opl_channel_index(oc);
@@ -323,6 +323,7 @@ static void drum_on(const uint32_t key, const uint32_t velocity)
     oc->midi_velocity = velocity;
     oc->active        = true;
 
+    // drum notes are within this range
     if (key < 35 || key > 75) {
       // not a valid drum note
       return;
@@ -339,7 +340,7 @@ static void drum_on(const uint32_t key, const uint32_t velocity)
     opl_note_on(ci, 35);
 }
 
-static void note_on(const struct midi_event_t* event)
+static void midi_note_on(const struct midi_event_t* event)
 {
     const uint32_t channel  = event->channel;
     const uint32_t key      = event->data[0];
@@ -362,7 +363,7 @@ static void note_on(const struct midi_event_t* event)
     }
 
     if (channel == DRUM_CHANNEL) {
-        drum_on(key, velocity);
+        midi_drum_on(key, velocity);
         return;
     }
 
@@ -389,7 +390,7 @@ static void note_on(const struct midi_event_t* event)
     opl_note_on(ci, key);
 }
 
-static void note_off(const struct midi_event_t* event)
+static void midi_note_off(const struct midi_event_t* event)
 {
     const uint32_t channel = event->channel;
     const uint32_t key     = event->data[0];
@@ -411,7 +412,7 @@ static void note_off(const struct midi_event_t* event)
     }
 }
 
-static void prog_change(const struct midi_event_t* event)
+static void midi_prog_change(const struct midi_event_t* event)
 {
     const uint32_t channel = event->channel;
     const uint32_t program = event->data[0];
@@ -442,9 +443,9 @@ static void device_adlib_send(const struct midi_event_t* event)
     ++ageCounter;
 
     switch (event->type) {
-    case e_midi_event_note_on:     note_on    (event); break;
-    case e_midi_event_note_off:    note_off   (event); break;
-    case e_midi_event_prog_change: prog_change(event); break;
+    case e_midi_event_note_on:     midi_note_on    (event); break;
+    case e_midi_event_note_off:    midi_note_off   (event); break;
+    case e_midi_event_prog_change: midi_prog_change(event); break;
     }
 }
 

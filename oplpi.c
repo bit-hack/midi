@@ -4,18 +4,18 @@
 #include "wiringPi.h"
 
 enum {
-    D0 = 9, // D0
-    D1 = 8, // D1
+    D0 = 9,  // D0
+    D1 = 8,  // D1
     D2 = 12, // D2
     D3 = 13, // D3
-    D4 = 5, // D4
-    D5 = 6, // D5
-    D6 = 4, // D6
-    D7 = 3, // D7
+    D4 = 5,  // D4
+    D5 = 6,  // D5
+    D6 = 4,  // D6
+    D7 = 3,  // D7
     CS = 15, // /CS   pullup    +
     A0 = 16, // A0
-    WR = 7, // /WR   pulldown  -
-    IC = 2, // /IC   pullup    +
+    WR = 7,  // /WR   pulldown  -
+    IC = 2,  // /IC   pullup    +   (GP27)
     // /RD   pullup    +
 };
 
@@ -31,6 +31,7 @@ static void setCS(int x)
 
 static void setIC(int x)
 {
+    pinMode(IC, x ? INPUT : OUTPUT);
     digitalWrite(IC, x);
 }
 
@@ -77,19 +78,18 @@ void oplpi_write(uint8_t reg, uint8_t byte)
 void oplpi_reset()
 {
     // reset
-    pinMode(IC, OUTPUT);
     // drive low activating reset
     setIC(0);
     // wait for reset to complete
-    delay(100);
+    delay(10);
     // drive high bringing out of reset
     setIC(1);
-    delay(100);
+    delay(10);
 
     // clear all registers (should be done by reset anyways)
-    for (int i = 0; i < 256; ++i) {
-        oplpi_write(i, 0);
-    }
+    //for (int i = 0; i < 256; ++i) {
+    //    oplpi_write(i, 0);
+    //}
 
     oplpi_write(0x01, 0x20); // wave select enable
     oplpi_write(0xBD, 0xc0); // DEP AM VIB
@@ -98,6 +98,12 @@ void oplpi_reset()
 void oplpi_init()
 {
     wiringPiSetup(NULL);
+
+    extern void gpio_board_version(char* dst, uint32_t dst_size);
+
+    char board[64] = { 0 };
+    gpio_board_version(board, sizeof(board));
+    printf("Board version: %s\n", board);
 
     // databus
     pinMode(D0, OUTPUT);
@@ -114,7 +120,9 @@ void oplpi_init()
     setA0(0);
 
     pinMode(CS, OUTPUT);
-    setCS(1);
+    setCS(0);
 
-    oplpi_reset();
+    for (int i = 0; i < 1; ++i) {
+      oplpi_reset();
+    }
 }
