@@ -24,9 +24,8 @@ add_executable(midiplay
   device_microsoft.c
   bank.h
   oplpi.c
-  gpio.cpp
-  gpio.h
-  WiringPi.h
+  serial.cpp
+  serial.h
   )
 target_link_libraries(midiplay
   libmidi

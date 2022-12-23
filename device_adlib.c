@@ -122,14 +122,14 @@ static uint8_t opl_volume_table[128] = {
 // 20 21 22 | 23 24 25 | 28 29 2a | 2b 2c 2d | 30 31 32 | 33 34 35    slot/reg
 // c0 c1 c2 | c0 c1 c2 | c3 c4 c5 | c3 c4 c5 | c6 c7 c8 | c6 c7 c8    channel/reg
 
-static uint32_t opl_slot0[OPL_CHANNELS] = { 0, 1, 2, /**/  8,  9, 10, /**/ 16, 17, 18 };
+static uint32_t opl_slot0[OPL_CHANNELS] = { 0, 1, 2, /**/ 8, 9, 10, /**/ 16, 17, 18 };
 static uint32_t opl_slot1[OPL_CHANNELS] = { 3, 4, 5, /**/ 11, 12, 13, /**/ 19, 20, 21 };
 
 // ----------------------------------------------------------------------------
 //
 // ----------------------------------------------------------------------------
 
-static void opl_reg_write(uint32_t index, uint8_t value, uint8_t mask)
+static void opl_reg_write(uint8_t index, uint8_t value, uint8_t mask)
 {
     const uint8_t old = opl_regs[index];
 
@@ -141,7 +141,7 @@ static void opl_reg_write(uint32_t index, uint8_t value, uint8_t mask)
     }
 }
 
-static uint8_t opl_reg_read(uint32_t index)
+static uint8_t opl_reg_read(uint8_t index)
 {
     return opl_regs[index];
 }
@@ -265,11 +265,11 @@ static void opl_total_level(uint32_t slot, uint8_t velocity)
 {
     assert(velocity <= 127);
 
-    const uint32_t level = opl_reg_read(0x40 + slot) & 0x3f;  // 6bit
-    const uint32_t vel   = opl_volume_table[velocity]; // 7bit
-    const uint32_t out   = (level * vel) >> 7;
+    velocity = opl_volume_table[velocity];
+    velocity ^= 0x7f;  // invert
+    velocity  = velocity >> 1; // 7bit -> 6bit
 
-    opl_reg_write(0x40 + slot, out, 0x3f);
+    opl_reg_write(0x40 + slot, velocity, 0x3f);
 }
 
 static void opl_channel_volume(uint32_t channel, uint32_t velocity)
@@ -305,7 +305,7 @@ static void opl_channel_volume(uint32_t channel, uint32_t velocity)
 
   // level shift OP1 too when in connection 1
   if (conn) {
-    opl_total_level(op1, velocity);
+      opl_total_level(op1, velocity);
   }
 }
 
@@ -363,7 +363,7 @@ static void midi_note_on(const struct midi_event_t* event)
     }
 
     if (channel == DRUM_CHANNEL) {
-        midi_drum_on(key, velocity);
+        // midi_drum_on(key, velocity);
         return;
     }
 
